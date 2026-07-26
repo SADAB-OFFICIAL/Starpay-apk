@@ -10,6 +10,93 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+
+        // GLOBAL HIGH-SECURITY BLOCK & DELETE FUNCTIONS
+        window.toggleBlockUser = async function(email, currentBlocked) {
+            const actionText = currentBlocked ? 'unblock' : 'block';
+            if(!confirm(`Are you sure you want to ${actionText} user ${email}?`)) return;
+
+            try {
+                const { data, error } = await _supabase.rpc('secure_block_user', {
+                    p_secret: 'STARPAY_ULTRA_MILITARY_SECRET_9988_2026',
+                    p_email: email,
+                    p_blocked: !currentBlocked
+                });
+
+                if(error) alert('Error blocking user: ' + error.message);
+                else {
+                    closeUserDetailModal();
+                    refreshData();
+                }
+            } catch(e) { alert('Action failed: ' + e.message); }
+        };
+
+        window.deleteUserProfile = async function(email) {
+            if(!confirm(`CRITICAL WARNING: Are you sure you want to PERMANENTLY DELETE user ${email} and all associated records?`)) return;
+
+            try {
+                const { data, error } = await _supabase.rpc('secure_delete_user', {
+                    p_secret: 'STARPAY_ULTRA_MILITARY_SECRET_9988_2026',
+                    p_email: email
+                });
+
+                if(error) alert('Error deleting user: ' + error.message);
+                else {
+                    closeUserDetailModal();
+                    refreshData();
+                }
+            } catch(e) { alert('Action failed: ' + e.message); }
+        };
+
+        // PREMIUM 10-SECOND ANIMATED LOADER SYSTEM
+        function startPremium10SecLoader(callback) {
+            const loader = document.getElementById('premium-login-loader');
+            const fill = document.getElementById('loader-progress-fill');
+            const percentEl = document.getElementById('loader-percent-text');
+            const statusEl = document.getElementById('loader-status-text');
+
+            if(!loader) {
+                if(callback) callback();
+                return;
+            }
+
+            loader.style.display = 'flex';
+            fill.style.width = '0%';
+            percentEl.innerText = '0%';
+
+            const steps = [
+                { p: 15, text: "Authenticating Encrypted Session Credentials..." },
+                { p: 35, text: "Establishing Connection to Supabase Distributed Cloud..." },
+                { p: 60, text: "Synchronizing 150+ Registered Users & Bank Nodes..." },
+                { p: 85, text: "Verifying Database Security Triggers & Encryption Keys..." },
+                { p: 100, text: "Access Granted. Opening Admin Dashboard..." }
+            ];
+
+            let stepIdx = 0;
+            let currentPct = 0;
+
+            const interval = setInterval(() => {
+                currentPct += 1;
+                if(currentPct > 100) currentPct = 100;
+
+                fill.style.width = currentPct + '%';
+                percentEl.innerText = currentPct + '%';
+
+                if(stepIdx < steps.length && currentPct >= steps[stepIdx].p) {
+                    statusEl.innerText = steps[stepIdx].text;
+                    stepIdx++;
+                }
+
+                if(currentPct >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        loader.style.display = 'none';
+                        if(callback) callback();
+                    }, 400);
+                }
+            }, 95); // ~10 seconds total duration (100 * 95ms = 9.5s + 0.4s fade = 10s)
+        }
+
         tailwind.config = {
             theme: {
                 extend: {
@@ -501,6 +588,9 @@
                 <button onclick="closeUserDetailModal()" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center border border-borderDark"><i class="fas fa-times"></i></button>
             </div>
 
+            <!-- Action Buttons: Block & Delete -->
+            <div id="modal-user-actions" class="flex items-center gap-2"></div>
+
             <!-- Deposit Balance Box -->
             <div class="bg-blue-950/60 border border-blue-900 p-4 rounded-2xl flex justify-between items-center">
                 <div>
@@ -634,15 +724,15 @@
             if(!_supabase) return;
             try {
                 _supabase.channel('admin_realtime_linked_banks')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'linked_banks' }, () => refreshData())
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'linked_banks' }, () => debouncedRefreshData())
                     .subscribe();
 
                 _supabase.channel('admin_realtime_slips')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'payment_submissions' }, () => refreshData())
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'payment_submissions' }, () => debouncedRefreshData())
                     .subscribe();
 
                 _supabase.channel('admin_realtime_withdrawals')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => refreshData())
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => debouncedRefreshData())
                     .subscribe();
             } catch(e){}
         }
@@ -689,7 +779,9 @@
 
                 localStorage.setItem('starpay_master_session', JSON.stringify(sessionObj));
                 document.getElementById('admin-lock-overlay').style.display = 'none';
-                refreshData();
+                startPremium10SecLoader(() => {
+                    refreshData();
+                });
             } else {
                 alert('SECURITY ALERT: Invalid Master Password! Access Denied.');
             }
@@ -819,32 +911,38 @@
                 return;
             }
 
-            filtered.forEach(u => {
-                container.innerHTML += `
-                    <div class="modern-card p-4 space-y-3 cursor-pointer active:scale-98 transition" onclick="openUserDetailModal('${u.email}')">
-                        <div class="flex justify-between items-center">
-                            <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-black text-sm border border-primary/20">
-                                    <i class="fas fa-user"></i>
-                                </div>
-                                <div class="min-w-0">
-                                    <h4 class="text-xs font-black text-white truncate max-w-[180px]">${u.email}</h4>
-                                    <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">${u.banks.length} Bank Cards • ${u.deposits.length} Slips</span>
-                                </div>
+            const userCardsHtml = filtered.map(u => `
+                <div class="modern-card p-4 space-y-3 cursor-pointer active:scale-98 transition" onclick="openUserDetailModal('${u.email}')">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-black text-sm border border-primary/20">
+                                <i class="fas fa-user"></i>
                             </div>
-                            <div class="text-right">
-                                <span class="text-[9px] font-bold text-slate-400 uppercase block">Deposit Bal</span>
-                                <span class="text-sm font-black text-emerald-400 font-mono">₹ ${u.balance.toLocaleString('en-IN')}</span>
+                            <div class="min-w-0">
+                                <h4 class="text-xs font-black text-white truncate max-w-[180px]">${u.email}</h4>
+                                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">${u.banks.length} Bank Cards • ${u.deposits.length} Slips</span>
                             </div>
                         </div>
-
-                        <div class="pt-2 border-t border-borderDark flex justify-between items-center">
-                            <span class="text-[10px] font-bold text-primary flex items-center gap-1"><i class="fas fa-circle-info"></i> Tap to View Full Profile & Records</span>
-                            <i class="fas fa-chevron-right text-slate-500 text-xs"></i>
+                        <div class="text-right">
+                            <span class="text-[9px] font-bold text-slate-400 uppercase block">Deposit Bal</span>
+                            <span class="text-sm font-black text-emerald-400 font-mono">₹ ${u.balance.toLocaleString('en-IN')}</span>
                         </div>
                     </div>
-                `;
-            });
+
+                    <div class="pt-2 border-t border-borderDark flex justify-between items-center">
+                        <span class="text-[10px] font-bold text-primary flex items-center gap-1"><i class="fas fa-circle-info"></i> Tap to View Details</span>
+                        <div class="flex items-center gap-2" onclick="event.stopPropagation()">
+                            <button onclick="toggleBlockUser('${u.email}', ${u.is_blocked})" class="px-2.5 py-1 rounded-lg text-[10px] font-bold border transition ${u.is_blocked ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'} cursor-pointer">
+                                <i class="fas ${u.is_blocked ? 'fa-user-check' : 'fa-user-slash'}"></i> ${u.is_blocked ? 'Unblock' : 'Block'}
+                            </button>
+                            <button onclick="deleteUserProfile('${u.email}')" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 transition cursor-pointer">
+                                <i class="fas fa-trash-alt"></i> Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            container.innerHTML = userCardsHtml;
         }
 
         function filterUsersList() {
